@@ -138,22 +138,7 @@
 
   /* clouds */
   .clouds-overlay{
-    /* Mask cuts a soft 200px-diameter hole around the cursor.
-       Inside the hole the clouds are transparent (you see the map clearly);
-       outside they're fully visible. The transition zone (60% → 100% of the radius)
-       gives a soft fade so the edge isn't a hard ring. */
-    -webkit-mask-image: radial-gradient(
-      circle 140px at var(--cursor-x, -9999px) var(--cursor-y, -9999px),
-      transparent 0%, transparent 55%,
-      rgba(0,0,0,0.5) 80%, black 100%);
-    mask-image: radial-gradient(
-      circle 140px at var(--cursor-x, -9999px) var(--cursor-y, -9999px),
-      transparent 0%, transparent 55%,
-      rgba(0,0,0,0.5) 80%, black 100%);
-  }
-  /* On touch/no-hover devices, drop the mask — there's no cursor to follow */
-  @media (hover: none), (pointer: coarse) {
-    .clouds-overlay{ -webkit-mask-image:none; mask-image:none; }
+    /* sparse atmospheric clouds drifting across the upper portion of the viewport */
   }
   .cloud{
     position:absolute;
@@ -1469,41 +1454,16 @@ function TamazSprite({ x, y, idleHint, scaleInv }) {
 }
 
 function Clouds({ density }) {
-  const overlayRef = React.useRef(null);
-
-  // Track cursor on desktop only — set CSS vars to drive the mask hole
-  React.useEffect(() => {
-    const el = overlayRef.current;
-    if (!el) return;
-    // Skip on touch/no-hover devices — there's no cursor to follow
-    if (window.matchMedia('(hover: none), (pointer: coarse)').matches) return;
-    const onMove = (e) => {
-      el.style.setProperty('--cursor-x', e.clientX + 'px');
-      el.style.setProperty('--cursor-y', e.clientY + 'px');
-    };
-    const onLeave = () => {
-      // Park the mask hole far off-screen so the fog covers everything
-      el.style.setProperty('--cursor-x', '-9999px');
-      el.style.setProperty('--cursor-y', '-9999px');
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseleave', onLeave);
-    return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseleave', onLeave);
-    };
-  }, []);
-
-  // Generate dense, full-height cloud field
-  const N = Math.max(density, 16); // ensure full coverage even if user lowers density
+  // Sparse atmospheric clouds — only a handful, only in the upper sky band.
+  // Coverage stays light (≈10% of viewport) so the map remains the focus.
+  const N = Math.min(density ?? 5, 6);
   const clouds = [];
   for (let i = 0; i < N; i++) {
-    // Spread vertically across the full viewport (not just the sky)
-    const top = -10 + ((i * 137) % 110); // pseudo-random distribution 0–100%
-    const left = -20 + ((i * 67) % 60);  // initial horizontal offset
-    const dur = 35 + (i * 7) % 25;        // 35–60s — visibly drifting
-    const op = 0.45 + (i * 0.083) % 0.4;  // 0.45–0.85
-    const scale = 1.6 + (i * 0.41) % 1.4; // 1.6–3.0
+    const top = 2 + (i * 17) % 22;        // 2–24% — sky band only
+    const left = -25 + ((i * 53) % 50);   // initial horizontal offset
+    const dur = 45 + (i * 11) % 30;        // 45–75s
+    const op = 0.4 + (i * 0.083) % 0.3;    // 0.4–0.7
+    const scale = 1.0 + (i * 0.31) % 0.6;  // 1.0–1.6 — smaller
     const anim = ['drift1', 'drift2', 'drift3'][i % 3];
     clouds.push(
       <svg key={i} className="cloud" style={{
@@ -1524,7 +1484,7 @@ function Clouds({ density }) {
     );
   }
   return (
-    <div ref={overlayRef} className="clouds-overlay" style={{
+    <div className="clouds-overlay" style={{
       position: 'fixed',
       inset: 0,
       pointerEvents: 'none',
