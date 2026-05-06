@@ -137,6 +137,24 @@
   .zoom-btn:hover{background:rgba(40,32,20,0.85);border-color:var(--gold)}
 
   /* clouds */
+  .clouds-overlay{
+    /* Mask cuts a soft 200px-diameter hole around the cursor.
+       Inside the hole the clouds are transparent (you see the map clearly);
+       outside they're fully visible. The transition zone (60% → 100% of the radius)
+       gives a soft fade so the edge isn't a hard ring. */
+    -webkit-mask-image: radial-gradient(
+      circle 140px at var(--cursor-x, -9999px) var(--cursor-y, -9999px),
+      transparent 0%, transparent 55%,
+      rgba(0,0,0,0.5) 80%, black 100%);
+    mask-image: radial-gradient(
+      circle 140px at var(--cursor-x, -9999px) var(--cursor-y, -9999px),
+      transparent 0%, transparent 55%,
+      rgba(0,0,0,0.5) 80%, black 100%);
+  }
+  /* On touch/no-hover devices, drop the mask — there's no cursor to follow */
+  @media (hover: none), (pointer: coarse) {
+    .clouds-overlay{ -webkit-mask-image:none; mask-image:none; }
+  }
   .cloud{
     position:absolute;
     pointer-events:none;
@@ -180,25 +198,26 @@
     width:72px;height:84px;position:relative;
     filter:drop-shadow(0 6px 8px rgba(0,0,0,0.55));
   }
+
+  /* Nameplate is rendered in a separate layer (lower z-index) so it never overlaps
+     pin balloons of nearby stops. .pin-nameplate-wrap is the positioned container
+     anchored to the stop's % coords; .pin-nameplate is the visible chevron-shaped tag. */
+  .pin-nameplate-wrap{
+    position:absolute;
+    transform-origin:50% 0;
+    z-index:3;             /* below pins (z:5) — text never covers another stop's balloon */
+    pointer-events:none;   /* clicks pass through to map/pin */
+    display:flex;
+    justify-content:center;
+  }
   .pin-nameplate{
-    margin-top:6px;
     background:#1a1410;border:1px solid var(--gold);
     color:#e9dcb6;font-family:'Inter', system-ui, -apple-system, sans-serif;font-size:10px;
     padding:4px 10px;text-transform:uppercase;text-align:center;
     white-space:nowrap;
     clip-path:polygon(8px 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 8px 100%, 0 50%);
-    transform:translateY(-2px);
     min-width:80px;
   }
-  .pin.opened .pin-checkmark{display:block}
-  .pin-checkmark{
-    display:none;position:absolute;right:-6px;top:6px;
-    width:24px;height:24px;border-radius:50%;
-    background:var(--gold-bright);border:2px solid #1a1410;
-    color:#1a1410;font-weight:700;display:none;
-    place-items:center;font-family:'Inter', system-ui, -apple-system, sans-serif;font-size:13px;
-  }
-  .pin.opened .pin-checkmark{display:grid}
 
   /* region label */
   .region-label{
@@ -614,10 +633,1723 @@
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 
-<script type="text/babel" src="src/tweaks-panel.jsx"></script>
-<script type="text/babel" src="src/data.jsx"></script>
-<script type="text/babel" src="src/map-canvas.jsx"></script>
-<script type="text/babel" src="src/popups.jsx"></script>
-<script type="text/babel" src="src/app.jsx"></script>
+<script type="text/babel" data-presets="react">
+(function(){
+// ===== src/tweaks-panel.jsx =====
+
+// tweaks-panel.jsx
+// Reusable Tweaks shell + form-control helpers.
+//
+// Owns the host protocol (listens for __activate_edit_mode / __deactivate_edit_mode,
+// posts __edit_mode_available / __edit_mode_set_keys / __edit_mode_dismissed) so
+// individual prototypes don't re-roll it. Ships a consistent set of controls so you
+// don't hand-draw <input type="range">, segmented radios, steppers, etc.
+//
+// Usage (in an HTML file that loads React + Babel):
+//
+//   const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+//     "primaryColor": "#D97757",
+//     "palette": ["#D97757", "#29261b", "#f6f4ef"],
+//     "fontSize": 16,
+//     "density": "regular",
+//     "dark": false
+//   }/*EDITMODE-END*/;
+//
+//   function App() {
+//     const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+//     return (
+//       <div style={{ fontSize: t.fontSize, color: t.primaryColor }}>
+//         Hello
+//         <TweaksPanel>
+//           <TweakSection label="Typography" />
+//           <TweakSlider label="Font size" value={t.fontSize} min={10} max={32} unit="px"
+//                        onChange={(v) => setTweak('fontSize', v)} />
+//           <TweakRadio  label="Density" value={t.density}
+//                        options={['compact', 'regular', 'comfy']}
+//                        onChange={(v) => setTweak('density', v)} />
+//           <TweakSection label="Theme" />
+//           <TweakColor  label="Primary" value={t.primaryColor}
+//                        options={['#D97757', '#2A6FDB', '#1F8A5B', '#7A5AE0']}
+//                        onChange={(v) => setTweak('primaryColor', v)} />
+//           <TweakColor  label="Palette" value={t.palette}
+//                        options={[['#D97757', '#29261b', '#f6f4ef'],
+//                                  ['#475569', '#0f172a', '#f1f5f9']]}
+//                        onChange={(v) => setTweak('palette', v)} />
+//           <TweakToggle label="Dark mode" value={t.dark}
+//                        onChange={(v) => setTweak('dark', v)} />
+//         </TweaksPanel>
+//       </div>
+//     );
+//   }
+//
+// ─────────────────────────────────────────────────────────────────────────────
+
+const __TWEAKS_STYLE = `
+  .twk-panel{position:fixed;right:16px;bottom:16px;z-index:2147483646;width:280px;
+    max-height:calc(100vh - 32px);display:flex;flex-direction:column;
+    transform:scale(var(--dc-inv-zoom,1));transform-origin:bottom right;
+    background:rgba(250,249,247,.78);color:#29261b;
+    -webkit-backdrop-filter:blur(24px) saturate(160%);backdrop-filter:blur(24px) saturate(160%);
+    border:.5px solid rgba(255,255,255,.6);border-radius:14px;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset,0 12px 40px rgba(0,0,0,.18);
+    font:11.5px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;overflow:hidden}
+  .twk-hd{display:flex;align-items:center;justify-content:space-between;
+    padding:10px 8px 10px 14px;cursor:move;user-select:none}
+  .twk-hd b{font-size:12px;font-weight:600;letter-spacing:.01em}
+  .twk-x{appearance:none;border:0;background:transparent;color:rgba(41,38,27,.55);
+    width:22px;height:22px;border-radius:6px;cursor:default;font-size:13px;line-height:1}
+  .twk-x:hover{background:rgba(0,0,0,.06);color:#29261b}
+  .twk-body{padding:2px 14px 14px;display:flex;flex-direction:column;gap:10px;
+    overflow-y:auto;overflow-x:hidden;min-height:0;
+    scrollbar-width:thin;scrollbar-color:rgba(0,0,0,.15) transparent}
+  .twk-body::-webkit-scrollbar{width:8px}
+  .twk-body::-webkit-scrollbar-track{background:transparent;margin:2px}
+  .twk-body::-webkit-scrollbar-thumb{background:rgba(0,0,0,.15);border-radius:4px;
+    border:2px solid transparent;background-clip:content-box}
+  .twk-body::-webkit-scrollbar-thumb:hover{background:rgba(0,0,0,.25);
+    border:2px solid transparent;background-clip:content-box}
+  .twk-row{display:flex;flex-direction:column;gap:5px}
+  .twk-row-h{flex-direction:row;align-items:center;justify-content:space-between;gap:10px}
+  .twk-lbl{display:flex;justify-content:space-between;align-items:baseline;
+    color:rgba(41,38,27,.72)}
+  .twk-lbl>span:first-child{font-weight:500}
+  .twk-val{color:rgba(41,38,27,.5);font-variant-numeric:tabular-nums}
+
+  .twk-sect{font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+    color:rgba(41,38,27,.45);padding:10px 0 0}
+  .twk-sect:first-child{padding-top:0}
+
+  .twk-field{appearance:none;width:100%;height:26px;padding:0 8px;
+    border:.5px solid rgba(0,0,0,.1);border-radius:7px;
+    background:rgba(255,255,255,.6);color:inherit;font:inherit;outline:none}
+  .twk-field:focus{border-color:rgba(0,0,0,.25);background:rgba(255,255,255,.85)}
+  select.twk-field{padding-right:22px;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='rgba(0,0,0,.5)' d='M0 0h10L5 6z'/></svg>");
+    background-repeat:no-repeat;background-position:right 8px center}
+
+  .twk-slider{appearance:none;-webkit-appearance:none;width:100%;height:4px;margin:6px 0;
+    border-radius:999px;background:rgba(0,0,0,.12);outline:none}
+  .twk-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
+    width:14px;height:14px;border-radius:50%;background:#fff;
+    border:.5px solid rgba(0,0,0,.12);box-shadow:0 1px 3px rgba(0,0,0,.2);cursor:default}
+  .twk-slider::-moz-range-thumb{width:14px;height:14px;border-radius:50%;
+    background:#fff;border:.5px solid rgba(0,0,0,.12);box-shadow:0 1px 3px rgba(0,0,0,.2);cursor:default}
+
+  .twk-seg{position:relative;display:flex;padding:2px;border-radius:8px;
+    background:rgba(0,0,0,.06);user-select:none}
+  .twk-seg-thumb{position:absolute;top:2px;bottom:2px;border-radius:6px;
+    background:rgba(255,255,255,.9);box-shadow:0 1px 2px rgba(0,0,0,.12);
+    transition:left .15s cubic-bezier(.3,.7,.4,1),width .15s}
+  .twk-seg.dragging .twk-seg-thumb{transition:none}
+  .twk-seg button{appearance:none;position:relative;z-index:1;flex:1;border:0;
+    background:transparent;color:inherit;font:inherit;font-weight:500;min-height:22px;
+    border-radius:6px;cursor:default;padding:4px 6px;line-height:1.2;
+    overflow-wrap:anywhere}
+
+  .twk-toggle{position:relative;width:32px;height:18px;border:0;border-radius:999px;
+    background:rgba(0,0,0,.15);transition:background .15s;cursor:default;padding:0}
+  .twk-toggle[data-on="1"]{background:#34c759}
+  .twk-toggle i{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;
+    background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s}
+  .twk-toggle[data-on="1"] i{transform:translateX(14px)}
+
+  .twk-num{display:flex;align-items:center;height:26px;padding:0 0 0 8px;
+    border:.5px solid rgba(0,0,0,.1);border-radius:7px;background:rgba(255,255,255,.6)}
+  .twk-num-lbl{font-weight:500;color:rgba(41,38,27,.6);cursor:ew-resize;
+    user-select:none;padding-right:8px}
+  .twk-num input{flex:1;min-width:0;height:100%;border:0;background:transparent;
+    font:inherit;font-variant-numeric:tabular-nums;text-align:right;padding:0 8px 0 0;
+    outline:none;color:inherit;-moz-appearance:textfield}
+  .twk-num input::-webkit-inner-spin-button,.twk-num input::-webkit-outer-spin-button{
+    -webkit-appearance:none;margin:0}
+  .twk-num-unit{padding-right:8px;color:rgba(41,38,27,.45)}
+
+  .twk-btn{appearance:none;height:26px;padding:0 12px;border:0;border-radius:7px;
+    background:rgba(0,0,0,.78);color:#fff;font:inherit;font-weight:500;cursor:default}
+  .twk-btn:hover{background:rgba(0,0,0,.88)}
+  .twk-btn.secondary{background:rgba(0,0,0,.06);color:inherit}
+  .twk-btn.secondary:hover{background:rgba(0,0,0,.1)}
+
+  .twk-swatch{appearance:none;-webkit-appearance:none;width:56px;height:22px;
+    border:.5px solid rgba(0,0,0,.1);border-radius:6px;padding:0;cursor:default;
+    background:transparent;flex-shrink:0}
+  .twk-swatch::-webkit-color-swatch-wrapper{padding:0}
+  .twk-swatch::-webkit-color-swatch{border:0;border-radius:5.5px}
+  .twk-swatch::-moz-color-swatch{border:0;border-radius:5.5px}
+
+  .twk-chips{display:flex;gap:6px}
+  .twk-chip{position:relative;appearance:none;flex:1;min-width:0;height:46px;
+    padding:0;border:0;border-radius:6px;overflow:hidden;cursor:default;
+    box-shadow:0 0 0 .5px rgba(0,0,0,.12),0 1px 2px rgba(0,0,0,.06);
+    transition:transform .12s cubic-bezier(.3,.7,.4,1),box-shadow .12s}
+  .twk-chip:hover{transform:translateY(-1px);
+    box-shadow:0 0 0 .5px rgba(0,0,0,.18),0 4px 10px rgba(0,0,0,.12)}
+  .twk-chip[data-on="1"]{box-shadow:0 0 0 1.5px rgba(0,0,0,.85),
+    0 2px 6px rgba(0,0,0,.15)}
+  .twk-chip>span{position:absolute;top:0;bottom:0;right:0;width:34%;
+    display:flex;flex-direction:column;box-shadow:-1px 0 0 rgba(0,0,0,.1)}
+  .twk-chip>span>i{flex:1;box-shadow:0 -1px 0 rgba(0,0,0,.1)}
+  .twk-chip>span>i:first-child{box-shadow:none}
+  .twk-chip svg{position:absolute;top:6px;left:6px;width:13px;height:13px;
+    filter:drop-shadow(0 1px 1px rgba(0,0,0,.3))}
+`;
+
+// ── useTweaks ───────────────────────────────────────────────────────────────
+// Single source of truth for tweak values. setTweak persists via the host
+// (__edit_mode_set_keys → host rewrites the EDITMODE block on disk).
+function useTweaks(defaults) {
+  const [values, setValues] = React.useState(defaults);
+  // Accepts either setTweak('key', value) or setTweak({ key: value, ... }) so a
+  // useState-style call doesn't write a "[object Object]" key into the persisted
+  // JSON block.
+  const setTweak = React.useCallback((keyOrEdits, val) => {
+    const edits = typeof keyOrEdits === 'object' && keyOrEdits !== null
+      ? keyOrEdits : { [keyOrEdits]: val };
+    setValues((prev) => ({ ...prev, ...edits }));
+    window.parent.postMessage({ type: '__edit_mode_set_keys', edits }, '*');
+    // Same-window signal so in-page listeners (deck-stage rail thumbnails)
+    // can react — the parent message only reaches the host, not peers.
+    window.dispatchEvent(new CustomEvent('tweakchange', { detail: edits }));
+  }, []);
+  return [values, setTweak];
+}
+
+// ── TweaksPanel ─────────────────────────────────────────────────────────────
+// Floating shell. Registers the protocol listener BEFORE announcing
+// availability — if the announce ran first, the host's activate could land
+// before our handler exists and the toolbar toggle would silently no-op.
+// The close button posts __edit_mode_dismissed so the host's toolbar toggle
+// flips off in lockstep; the host echoes __deactivate_edit_mode back which
+// is what actually hides the panel.
+function TweaksPanel({ title = 'Tweaks', noDeckControls = false, children }) {
+  const [open, setOpen] = React.useState(false);
+  const dragRef = React.useRef(null);
+  // Auto-inject a rail toggle when a <deck-stage> is on the page. The
+  // toggle drives the deck's per-viewer _railVisible via window message;
+  // state is mirrored from the same localStorage key the deck reads so
+  // the control reflects reality across reloads. The mechanism is the
+  // message — authors who want custom placement can post it directly
+  // and pass noDeckControls to suppress this one.
+  const hasDeckStage = React.useMemo(
+    () => typeof document !== 'undefined' && !!document.querySelector('deck-stage'),
+    [],
+  );
+  // Hide the toggle until the host has actually enabled the rail (the
+  // __omelette_rail_enabled window message, posted only when the
+  // omelette_deck_rail_enabled flag is on for this user). The initial read
+  // covers TweaksPanel mounting after the message already arrived; the
+  // listener covers the common case of mounting first.
+  const [railEnabled, setRailEnabled] = React.useState(
+    () => hasDeckStage && !!document.querySelector('deck-stage')?._railEnabled,
+  );
+  React.useEffect(() => {
+    if (!hasDeckStage || railEnabled) return undefined;
+    const onMsg = (e) => {
+      if (e.data && e.data.type === '__omelette_rail_enabled') setRailEnabled(true);
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, [hasDeckStage, railEnabled]);
+  const [railVisible, setRailVisible] = React.useState(() => {
+    try { return localStorage.getItem('deck-stage.railVisible') !== '0'; } catch (e) { return true; }
+  });
+  const toggleRail = (on) => {
+    setRailVisible(on);
+    window.postMessage({ type: '__deck_rail_visible', on }, '*');
+  };
+  const offsetRef = React.useRef({ x: 16, y: 16 });
+  const PAD = 16;
+
+  const clampToViewport = React.useCallback(() => {
+    const panel = dragRef.current;
+    if (!panel) return;
+    const w = panel.offsetWidth, h = panel.offsetHeight;
+    const maxRight = Math.max(PAD, window.innerWidth - w - PAD);
+    const maxBottom = Math.max(PAD, window.innerHeight - h - PAD);
+    offsetRef.current = {
+      x: Math.min(maxRight, Math.max(PAD, offsetRef.current.x)),
+      y: Math.min(maxBottom, Math.max(PAD, offsetRef.current.y)),
+    };
+    panel.style.right = offsetRef.current.x + 'px';
+    panel.style.bottom = offsetRef.current.y + 'px';
+  }, []);
+
+  React.useEffect(() => {
+    if (!open) return;
+    clampToViewport();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', clampToViewport);
+      return () => window.removeEventListener('resize', clampToViewport);
+    }
+    const ro = new ResizeObserver(clampToViewport);
+    ro.observe(document.documentElement);
+    return () => ro.disconnect();
+  }, [open, clampToViewport]);
+
+  React.useEffect(() => {
+    const onMsg = (e) => {
+      const t = e?.data?.type;
+      if (t === '__activate_edit_mode') setOpen(true);
+      else if (t === '__deactivate_edit_mode') setOpen(false);
+    };
+    window.addEventListener('message', onMsg);
+    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+
+  const dismiss = () => {
+    setOpen(false);
+    window.parent.postMessage({ type: '__edit_mode_dismissed' }, '*');
+  };
+
+  const onDragStart = (e) => {
+    const panel = dragRef.current;
+    if (!panel) return;
+    const r = panel.getBoundingClientRect();
+    const sx = e.clientX, sy = e.clientY;
+    const startRight = window.innerWidth - r.right;
+    const startBottom = window.innerHeight - r.bottom;
+    const move = (ev) => {
+      offsetRef.current = {
+        x: startRight - (ev.clientX - sx),
+        y: startBottom - (ev.clientY - sy),
+      };
+      clampToViewport();
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  };
+
+  if (!open) return null;
+  return (
+    <>
+      <style>{__TWEAKS_STYLE}</style>
+      <div ref={dragRef} className="twk-panel" data-noncommentable=""
+           style={{ right: offsetRef.current.x, bottom: offsetRef.current.y }}>
+        <div className="twk-hd" onMouseDown={onDragStart}>
+          <b>{title}</b>
+          <button className="twk-x" aria-label="Close tweaks"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={dismiss}>✕</button>
+        </div>
+        <div className="twk-body">
+          {children}
+          {hasDeckStage && railEnabled && !noDeckControls && (
+            <TweakSection label="Deck">
+              <TweakToggle label="Thumbnail rail" value={railVisible} onChange={toggleRail} />
+            </TweakSection>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── Layout helpers ──────────────────────────────────────────────────────────
+
+function TweakSection({ label, children }) {
+  return (
+    <>
+      <div className="twk-sect">{label}</div>
+      {children}
+    </>
+  );
+}
+
+function TweakRow({ label, value, children, inline = false }) {
+  return (
+    <div className={inline ? 'twk-row twk-row-h' : 'twk-row'}>
+      <div className="twk-lbl">
+        <span>{label}</span>
+        {value != null && <span className="twk-val">{value}</span>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// ── Controls ────────────────────────────────────────────────────────────────
+
+function TweakSlider({ label, value, min = 0, max = 100, step = 1, unit = '', onChange }) {
+  return (
+    <TweakRow label={label} value={`${value}${unit}`}>
+      <input type="range" className="twk-slider" min={min} max={max} step={step}
+             value={value} onChange={(e) => onChange(Number(e.target.value))} />
+    </TweakRow>
+  );
+}
+
+function TweakToggle({ label, value, onChange }) {
+  return (
+    <div className="twk-row twk-row-h">
+      <div className="twk-lbl"><span>{label}</span></div>
+      <button type="button" className="twk-toggle" data-on={value ? '1' : '0'}
+              role="switch" aria-checked={!!value}
+              onClick={() => onChange(!value)}><i /></button>
+    </div>
+  );
+}
+
+function TweakRadio({ label, value, options, onChange }) {
+  const trackRef = React.useRef(null);
+  const [dragging, setDragging] = React.useState(false);
+  // The active value is read by pointer-move handlers attached for the lifetime
+  // of a drag — ref it so a stale closure doesn't fire onChange for every move.
+  const valueRef = React.useRef(value);
+  valueRef.current = value;
+
+  // Segments wrap mid-word once per-segment width runs out. The track is
+  // ~248px (280 panel − 28 body pad − 4 seg pad), each button loses 12px
+  // to its own padding, and 11.5px system-ui averages ~6.3px/char — so 2
+  // options fit ~16 chars each, 3 fit ~10. Past that (or >3 options), fall
+  // back to a dropdown rather than wrap.
+  const labelLen = (o) => String(typeof o === 'object' ? o.label : o).length;
+  const maxLen = options.reduce((m, o) => Math.max(m, labelLen(o)), 0);
+  const fitsAsSegments = maxLen <= ({ 2: 16, 3: 10 }[options.length] ?? 0);
+  if (!fitsAsSegments) {
+    // <select> emits strings — map back to the original option value so the
+    // fallback stays type-preserving (numbers, booleans) like the segment path.
+    const resolve = (s) => {
+      const m = options.find((o) => String(typeof o === 'object' ? o.value : o) === s);
+      return m === undefined ? s : typeof m === 'object' ? m.value : m;
+    };
+    return <TweakSelect label={label} value={value} options={options}
+                        onChange={(s) => onChange(resolve(s))} />;
+  }
+  const opts = options.map((o) => (typeof o === 'object' ? o : { value: o, label: o }));
+  const idx = Math.max(0, opts.findIndex((o) => o.value === value));
+  const n = opts.length;
+
+  const segAt = (clientX) => {
+    const r = trackRef.current.getBoundingClientRect();
+    const inner = r.width - 4;
+    const i = Math.floor(((clientX - r.left - 2) / inner) * n);
+    return opts[Math.max(0, Math.min(n - 1, i))].value;
+  };
+
+  const onPointerDown = (e) => {
+    setDragging(true);
+    const v0 = segAt(e.clientX);
+    if (v0 !== valueRef.current) onChange(v0);
+    const move = (ev) => {
+      if (!trackRef.current) return;
+      const v = segAt(ev.clientX);
+      if (v !== valueRef.current) onChange(v);
+    };
+    const up = () => {
+      setDragging(false);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  return (
+    <TweakRow label={label}>
+      <div ref={trackRef} role="radiogroup" onPointerDown={onPointerDown}
+           className={dragging ? 'twk-seg dragging' : 'twk-seg'}>
+        <div className="twk-seg-thumb"
+             style={{ left: `calc(2px + ${idx} * (100% - 4px) / ${n})`,
+                      width: `calc((100% - 4px) / ${n})` }} />
+        {opts.map((o) => (
+          <button key={o.value} type="button" role="radio" aria-checked={o.value === value}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </TweakRow>
+  );
+}
+
+function TweakSelect({ label, value, options, onChange }) {
+  return (
+    <TweakRow label={label}>
+      <select className="twk-field" value={value} onChange={(e) => onChange(e.target.value)}>
+        {options.map((o) => {
+          const v = typeof o === 'object' ? o.value : o;
+          const l = typeof o === 'object' ? o.label : o;
+          return <option key={v} value={v}>{l}</option>;
+        })}
+      </select>
+    </TweakRow>
+  );
+}
+
+function TweakText({ label, value, placeholder, onChange }) {
+  return (
+    <TweakRow label={label}>
+      <input className="twk-field" type="text" value={value} placeholder={placeholder}
+             onChange={(e) => onChange(e.target.value)} />
+    </TweakRow>
+  );
+}
+
+function TweakNumber({ label, value, min, max, step = 1, unit = '', onChange }) {
+  const clamp = (n) => {
+    if (min != null && n < min) return min;
+    if (max != null && n > max) return max;
+    return n;
+  };
+  const startRef = React.useRef({ x: 0, val: 0 });
+  const onScrubStart = (e) => {
+    e.preventDefault();
+    startRef.current = { x: e.clientX, val: value };
+    const decimals = (String(step).split('.')[1] || '').length;
+    const move = (ev) => {
+      const dx = ev.clientX - startRef.current.x;
+      const raw = startRef.current.val + dx * step;
+      const snapped = Math.round(raw / step) * step;
+      onChange(clamp(Number(snapped.toFixed(decimals))));
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+  return (
+    <div className="twk-num">
+      <span className="twk-num-lbl" onPointerDown={onScrubStart}>{label}</span>
+      <input type="number" value={value} min={min} max={max} step={step}
+             onChange={(e) => onChange(clamp(Number(e.target.value)))} />
+      {unit && <span className="twk-num-unit">{unit}</span>}
+    </div>
+  );
+}
+
+// Relative-luminance contrast pick — checkmarks drawn over a swatch need to
+// read on both #111 and #fafafa without per-option configuration. Hex input
+// only (#rgb / #rrggbb); named or rgb()/hsl() colors fall through to "light".
+function __twkIsLight(hex) {
+  const h = String(hex).replace('#', '');
+  const x = h.length === 3 ? h.replace(/./g, (c) => c + c) : h.padEnd(6, '0');
+  const n = parseInt(x.slice(0, 6), 16);
+  if (Number.isNaN(n)) return true;
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  return r * 299 + g * 587 + b * 114 > 148000;
+}
+
+const __TwkCheck = ({ light }) => (
+  <svg viewBox="0 0 14 14" aria-hidden="true">
+    <path d="M3 7.2 5.8 10 11 4.2" fill="none" strokeWidth="2.2"
+          strokeLinecap="round" strokeLinejoin="round"
+          stroke={light ? 'rgba(0,0,0,.78)' : '#fff'} />
+  </svg>
+);
+
+// TweakColor — curated color/palette picker. Each option is either a single
+// hex string or an array of 1-5 hex strings; the card adapts — a lone color
+// renders solid, a palette renders colors[0] as the hero (left ~2/3) with the
+// rest stacked in a sharp column on the right. onChange emits the
+// option in the shape it was passed (string stays string, array stays array).
+// Without options it falls back to the native color input for back-compat.
+function TweakColor({ label, value, options, onChange }) {
+  if (!options || !options.length) {
+    return (
+      <div className="twk-row twk-row-h">
+        <div className="twk-lbl"><span>{label}</span></div>
+        <input type="color" className="twk-swatch" value={value}
+               onChange={(e) => onChange(e.target.value)} />
+      </div>
+    );
+  }
+  // Native <input type=color> emits lowercase hex per the HTML spec, so
+  // compare case-insensitively. String() guards JSON.stringify(undefined),
+  // which returns the primitive undefined (no .toLowerCase).
+  const key = (o) => String(JSON.stringify(o)).toLowerCase();
+  const cur = key(value);
+  return (
+    <TweakRow label={label}>
+      <div className="twk-chips" role="radiogroup">
+        {options.map((o, i) => {
+          const colors = Array.isArray(o) ? o : [o];
+          const [hero, ...rest] = colors;
+          const sup = rest.slice(0, 4);
+          const on = key(o) === cur;
+          return (
+            <button key={i} type="button" className="twk-chip" role="radio"
+                    aria-checked={on} data-on={on ? '1' : '0'}
+                    aria-label={colors.join(', ')} title={colors.join(' · ')}
+                    style={{ background: hero }}
+                    onClick={() => onChange(o)}>
+              {sup.length > 0 && (
+                <span>
+                  {sup.map((c, j) => <i key={j} style={{ background: c }} />)}
+                </span>
+              )}
+              {on && <__TwkCheck light={__twkIsLight(hero)} />}
+            </button>
+          );
+        })}
+      </div>
+    </TweakRow>
+  );
+}
+
+function TweakButton({ label, onClick, secondary = false }) {
+  return (
+    <button type="button" className={secondary ? 'twk-btn secondary' : 'twk-btn'}
+            onClick={onClick}>{label}</button>
+  );
+}
+
+Object.assign(window, {
+  useTweaks, TweaksPanel, TweakSection, TweakRow,
+  TweakSlider, TweakToggle, TweakRadio, TweakSelect,
+  TweakText, TweakNumber, TweakColor, TweakButton,
+});
+
+})();
+
+(function(){
+// ===== src/data.jsx =====
+// Stops data — positions in % of map image (6336x2688)
+const FACULTIES = {
+  F1: 'Факультет инновационного развития врача и лидерства',
+  F2: 'Факультет искусственного интеллекта',
+  F3: 'Факультет сложных материй и фиксированной тройной комбинации',
+  F4: 'Факультет пациентов высокого СС-риска',
+  LIB: 'Вековая библиотека',
+  FOREST: 'Лес заклинаний',
+  PEAK: 'Пик достижений',
+  COFFEE: 'Кофейня «Три зерна кардиологии»',
+  STREAM: 'Ручей Знаний',
+};
+
+// Coordinates (x%, y%) anchored to landmarks on the provided map image.
+// Refined per landmark guide in spec; multiple stops cluster around their building.
+const STOPS = [
+  // F1 — Stop 1: river hit area handled separately. Pin sits over river label.
+  { id:1,  faculty:FACULTIES.F1, title:'Река Аватария', subtitle:'Развлечение · аватар',
+    professor:'demkina', type:'avatar-gen', awardsPoints:false,
+    position:{x:24, y:48}, glyph:'river' },
+  // 2,3 — F1 academic building (39%, 38%)
+  { id:2,  faculty:FACULTIES.F1, title:'Видео мотивации врача', subtitle:'Личный блог · нетворкинг',
+    professor:'demkina', type:'video', awardsPoints:true,
+    position:{x:36, y:36}, glyph:'scroll' },
+  { id:3,  faculty:FACULTIES.F1, title:'Шпаргалка от лидера', subtitle:'Соцсети · PDF',
+    professor:'demkina', type:'cards-download', awardsPoints:true,
+    position:{x:42, y:40}, glyph:'feather' },
+  // 4,5 — Coffee shop (22%, 72%)
+  { id:4,  faculty:FACULTIES.COFFEE, title:'Видео трёх лидеров', subtitle:'О пользе и вреде кофе',
+    type:'video', awardsPoints:true,
+    position:{x:20, y:70}, glyph:'cup' },
+  { id:5,  faculty:FACULTIES.COFFEE, title:'«Элевато Максима»', subtitle:'Вещества, повышающие АГ',
+    spell:'Elevato Maxima', type:'cards-download', awardsPoints:true,
+    position:{x:25, y:74}, glyph:'flask' },
+  // 6,7 — F2 gear tower (30%, 50%)
+  { id:6,  faculty:FACULTIES.F2, title:'ИИ в медицине', subtitle:'Прокачка с Демкиной',
+    professor:'demkina', type:'video', awardsPoints:true,
+    position:{x:28, y:48}, glyph:'eye' },
+  { id:7,  faculty:FACULTIES.F2, title:'Боишься ИИ?', subtitle:'Шпаргалка · PDF',
+    professor:'demkina', type:'cards-download', awardsPoints:true,
+    position:{x:33, y:52}, glyph:'gear' },
+  // 8,9 — F3 three-tower castle (50%, 47%)
+  { id:8,  faculty:FACULTIES.F3, title:'«Триптих»', subtitle:'Видео исследования',
+    professor:'chernova', type:'video', awardsPoints:true,
+    position:{x:48, y:45}, glyph:'tablet' },
+  { id:9,  faculty:FACULTIES.F3, title:'Кардиоонкология', subtitle:'Слайды · клинреки',
+    professor:'chernova', type:'cards-no-download', awardsPoints:true,
+    position:{x:54, y:49}, glyph:'heart' },
+  // 10,11,12 — Stream of Knowledge (62%, 42%)
+  { id:10, faculty:FACULTIES.STREAM, title:'ОАС и АГ', subtitle:'Шпаргалка · PDF',
+    type:'cards-download', awardsPoints:true,
+    position:{x:60, y:40}, glyph:'wave' },
+  { id:11, faculty:FACULTIES.STREAM, title:'Глаукома и АГ', subtitle:'Шпаргалка · PDF',
+    type:'cards-download', awardsPoints:true,
+    position:{x:64, y:44}, glyph:'eye' },
+  { id:12, faculty:FACULTIES.STREAM, title:'Перименопауза и АГ', subtitle:'Шпаргалка · PDF',
+    type:'cards-download', awardsPoints:true,
+    position:{x:67, y:42}, glyph:'moon' },
+  // 13–16 — F4 fortress (68%, 52%)
+  { id:13, faculty:FACULTIES.F4, title:'150 — проблема или нет?', subtitle:'Вертикальное видео',
+    professor:'tamaz', type:'video-vertical', awardsPoints:true,
+    position:{x:66, y:50}, glyph:'gauge' },
+  { id:14, faculty:FACULTIES.F4, title:'Лечить нельзя игнорировать', subtitle:'Тихие пациенты',
+    professor:'tamaz', type:'video-vertical', awardsPoints:true,
+    position:{x:70, y:54}, glyph:'shield' },
+  { id:15, faculty:FACULTIES.F4, title:'«Васкуло Репэро»', subtitle:'АГ при ИБС',
+    spell:'Vasculo Reparo', professor:'tamaz', type:'cards-no-download', awardsPoints:true,
+    position:{x:73, y:50}, glyph:'flask' },
+  { id:16, faculty:FACULTIES.F4, title:'Вторичная гипертензия', subtitle:'Принципы диагностики',
+    professor:'tamaz', type:'cards-no-download', awardsPoints:true,
+    position:{x:69, y:46}, glyph:'feather' },
+  // 17,18,19 — Library (76%, 24%)
+  { id:17, faculty:FACULTIES.LIB, title:'«Рекомендацио»', subtitle:'Карманное руководство',
+    spell:'Recommendatio', professor:'tamaz', type:'book', awardsPoints:true,
+    position:{x:74, y:22}, glyph:'book' },
+  { id:18, faculty:FACULTIES.LIB, title:'«Выбиракулус»', subtitle:'Противопоказания классов',
+    spell:'Vybiraculus', professor:'tamaz', type:'cards-no-download', awardsPoints:true,
+    position:{x:78, y:26}, glyph:'scroll' },
+  { id:19, faculty:FACULTIES.LIB, title:'«Масси»', subtitle:'ESH 2025',
+    type:'cards-no-download', awardsPoints:true,
+    position:{x:80, y:22}, glyph:'feather' },
+  // 20 — Forest of Spells (78%, 76%)
+  { id:20, faculty:FACULTIES.FOREST, title:'«Триплексио»', subtitle:'Котёл · мини-игра',
+    spell:'Triplexio', professor:'tamaz', type:'potion-game', awardsPoints:true,
+    position:{x:78, y:74}, glyph:'cauldron' },
+  // 21,22 — Peak (95%, 52%)
+  { id:21, faculty:FACULTIES.PEAK, title:'Кардиоринг', subtitle:'Квиз · правда/вымысел',
+    type:'quiz', awardsPoints:true,
+    position:{x:93, y:50}, glyph:'mountain' },
+  { id:22, faculty:FACULTIES.PEAK, title:'Получение диплома', subtitle:'Магистр',
+    type:'diploma', awardsPoints:false,
+    position:{x:96, y:45}, glyph:'diploma' },
+];
+
+const GLYPHS = {
+  river:'<path d="M6 22 Q15 12 22 18 T40 14" fill="none" stroke="#3a342a" stroke-width="1.4"/><path d="M6 28 Q15 18 22 24 T40 20" fill="none" stroke="#3a342a" stroke-width="1.4"/><circle cx="34" cy="10" r="1.5" fill="#3a342a"/>',
+  scroll:'<rect x="10" y="12" width="26" height="20" fill="#e3d8bc" stroke="#3a342a" stroke-width="1.2"/><circle cx="10" cy="12" r="3" fill="#c9a961" stroke="#3a342a"/><circle cx="36" cy="32" r="3" fill="#c9a961" stroke="#3a342a"/><line x1="14" y1="20" x2="32" y2="20" stroke="#3a342a"/><line x1="14" y1="24" x2="28" y2="24" stroke="#3a342a"/>',
+  feather:'<path d="M14 30 Q18 14 30 10 Q26 22 18 32 Z" fill="#e3d8bc" stroke="#3a342a" stroke-width="1.2"/><line x1="22" y1="20" x2="14" y2="34" stroke="#3a342a"/>',
+  cup:'<path d="M12 16 H32 V26 Q32 32 22 32 Q12 32 12 26 Z" fill="#e3d8bc" stroke="#3a342a" stroke-width="1.3"/><path d="M32 18 Q38 18 38 22 Q38 26 32 26" fill="none" stroke="#3a342a" stroke-width="1.3"/><path d="M16 12 Q18 10 16 8 M22 12 Q24 10 22 8 M28 12 Q30 10 28 8" fill="none" stroke="#3a342a"/>',
+  flask:'<path d="M18 8 V18 L12 32 Q12 36 22 36 Q32 36 32 32 L26 18 V8 Z" fill="#e3d8bc" stroke="#3a342a" stroke-width="1.3"/><line x1="14" y1="8" x2="30" y2="8" stroke="#3a342a" stroke-width="1.4"/><circle cx="20" cy="28" r="1.5" fill="#3a342a"/>',
+  eye:'<path d="M6 22 Q22 10 38 22 Q22 34 6 22Z" fill="#e3d8bc" stroke="#3a342a" stroke-width="1.3"/><circle cx="22" cy="22" r="5" fill="#3a342a"/><circle cx="22" cy="22" r="2" fill="#e3d8bc"/>',
+  gear:'<g stroke="#3a342a" stroke-width="1.2" fill="#e3d8bc"><circle cx="22" cy="22" r="8"/><rect x="20" y="6" width="4" height="6"/><rect x="20" y="32" width="4" height="6"/><rect x="6" y="20" width="6" height="4"/><rect x="32" y="20" width="6" height="4"/></g><circle cx="22" cy="22" r="3" fill="#3a342a"/>',
+  tablet:'<rect x="10" y="14" width="24" height="16" rx="8" fill="#e3d8bc" stroke="#3a342a" stroke-width="1.3"/><line x1="22" y1="14" x2="22" y2="30" stroke="#3a342a"/>',
+  heart:'<path d="M22 32 Q8 22 8 16 Q8 10 14 10 Q18 10 22 14 Q26 10 30 10 Q36 10 36 16 Q36 22 22 32Z" fill="#e3d8bc" stroke="#3a342a" stroke-width="1.3"/><path d="M14 18 H18 L20 14 L24 24 L26 18 H30" fill="none" stroke="#3a342a" stroke-width="1.2"/>',
+  wave:'<path d="M6 18 Q12 12 18 18 T30 18 T42 18" fill="none" stroke="#3a342a" stroke-width="1.4"/><path d="M6 26 Q12 20 18 26 T30 26 T42 26" fill="none" stroke="#3a342a" stroke-width="1.4"/>',
+  moon:'<path d="M28 8 A14 14 0 1 0 28 36 A11 11 0 1 1 28 8Z" fill="#e3d8bc" stroke="#3a342a" stroke-width="1.3"/>',
+  gauge:'<path d="M8 28 A14 14 0 0 1 36 28" fill="none" stroke="#3a342a" stroke-width="1.4"/><line x1="22" y1="28" x2="32" y2="14" stroke="#3a342a" stroke-width="1.6"/><circle cx="22" cy="28" r="2" fill="#3a342a"/>',
+  shield:'<path d="M22 8 L34 12 V22 Q34 30 22 36 Q10 30 10 22 V12 Z" fill="#e3d8bc" stroke="#3a342a" stroke-width="1.3"/><path d="M22 16 V28 M16 22 H28" stroke="#3a342a" stroke-width="1.3"/>',
+  book:'<path d="M8 10 L22 14 L36 10 V32 L22 36 L8 32 Z" fill="#e3d8bc" stroke="#3a342a" stroke-width="1.3"/><line x1="22" y1="14" x2="22" y2="36" stroke="#3a342a"/>',
+  cauldron:'<ellipse cx="22" cy="28" rx="14" ry="6" fill="#3a342a"/><path d="M8 22 Q22 32 36 22 V28 Q36 36 22 36 Q8 36 8 28Z" fill="#3a342a"/>',
+  mountain:'<path d="M6 32 L16 14 L22 22 L30 10 L40 32 Z" fill="#e3d8bc" stroke="#3a342a" stroke-width="1.3"/>',
+  diploma:'<rect x="8" y="10" width="28" height="20" fill="#e3d8bc" stroke="#3a342a" stroke-width="1.3"/><line x1="12" y1="16" x2="32" y2="16" stroke="#3a342a"/><line x1="12" y1="20" x2="28" y2="20" stroke="#3a342a"/><circle cx="32" cy="30" r="4" fill="#c9a961" stroke="#3a342a"/>',
+};
+
+function diplomaLevel(points){
+  if (points >= 15) return { name:'Золотой', cls:'gold', color:'#d4ac5a' };
+  if (points >= 10) return { name:'Серебряный', cls:'silver', color:'#aab2bb' };
+  if (points >= 5)  return { name:'Бронзовый', cls:'bronze', color:'#a06a3a' };
+  return { name:'Не присвоено', cls:'none', color:'#7a6a4a' };
+}
+
+const QUIZ_QUESTIONS = [
+  { q:'Кофе абсолютно противопоказан пациентам с АГ.', truth:false },
+  { q:'Фиксированные тройные комбинации улучшают комплаенс.', truth:true },
+  { q:'У пациентов с глаукомой можно безопасно назначать любые антигипертензивные.', truth:false },
+  { q:'НПВС могут повышать АД у некоторых пациентов.', truth:true },
+  { q:'Перименопауза не влияет на АД.', truth:false },
+  { q:'При АГ + ИБС бета-блокаторы остаются препаратами выбора.', truth:true },
+  { q:'150/95 в пожилом возрасте — это вариант нормы.', truth:false },
+  { q:'Вторичная гипертензия требует исключения у молодых с резистентной АГ.', truth:true },
+  { q:'Тройная фиксированная комбинация всегда содержит бета-блокатор.', truth:false },
+  { q:'Регулярное АД-мониторирование снижает сердечно-сосудистый риск.', truth:true },
+];
+
+window.STOPS = STOPS;
+window.GLYPHS = GLYPHS;
+window.FACULTIES = FACULTIES;
+window.diplomaLevel = diplomaLevel;
+window.QUIZ_QUESTIONS = QUIZ_QUESTIONS;
+window.MAP_W = 3168;
+window.MAP_H = 1344;
+
+})();
+
+(function(){
+// ===== src/map-canvas.jsx =====
+// MapCanvas v2 — uses provided raster map as canvas. Pins/Tamaz/Clouds overlay it.
+const { useMemo } = React;
+
+function PinBalloon({ glyph }) {
+  return (
+    <svg className="pin-balloon" viewBox="0 0 72 84">
+      <defs>
+        <radialGradient id="frameGrad" cx="0.3" cy="0.3" r="0.9">
+          <stop offset="0" stopColor="#e6c785"/>
+          <stop offset="0.55" stopColor="#b8923f"/>
+          <stop offset="1" stopColor="#6c5418"/>
+        </radialGradient>
+        <radialGradient id="thumbGrad" cx="0.5" cy="0.45" r="0.7">
+          <stop offset="0" stopColor="#f4ead0"/>
+          <stop offset="1" stopColor="#bcab86"/>
+        </radialGradient>
+      </defs>
+      <path d="M36 80 L24 58 Q8 50 8 32 A28 28 0 1 1 64 32 Q64 50 48 58 Z"
+        fill="url(#frameGrad)" stroke="#4a3a18" strokeWidth="1.4"/>
+      <circle cx="36" cy="32" r="22" fill="url(#thumbGrad)" stroke="#4a3a18" strokeWidth="1"/>
+      <g transform="translate(14 10)" dangerouslySetInnerHTML={{__html: glyph}} />
+      <g transform="translate(36 64)" fill="#1a1410">
+        <path d="M0 -4 L1.2 -1.2 L4 -0.5 L1.5 1 L2.2 4 L0 2.4 L-2.2 4 L-1.5 1 L-4 -0.5 L-1.2 -1.2 Z"/>
+      </g>
+    </svg>
+  );
+}
+
+function Pin({ stop, state, onClick, num, scaleInv }) {
+  const cls = ['pin', state].filter(Boolean).join(' ');
+  return (
+    <div
+      className={cls}
+      style={{
+        left: `${stop.position.x}%`,
+        top: `${stop.position.y}%`,
+        transform: `translate(-50%,-100%) scale(${scaleInv})`,
+        transformOrigin: '50% 100%'}}
+      onClick={state === 'locked' ? undefined : onClick}
+      role="button" tabIndex={state==='locked'?-1:0}
+      aria-label={`${num}. ${stop.title}`}
+      onKeyDown={(e) => { if ((e.key==='Enter'||e.key===' ') && state!=='locked') { e.preventDefault(); onClick && onClick(); } }}
+    >
+      <PinBalloon glyph={GLYPHS[stop.glyph] || GLYPHS.scroll}/>
+      <div className="pin-lock" aria-hidden="true">
+        <svg viewBox="0 0 8 8" fill="none" stroke="#d4ac5a" strokeWidth="1">
+          <rect x="1.5" y="3.5" width="5" height="3.5" rx="0.5" fill="#d4ac5a" stroke="none"/>
+          <path d="M2.5 3.5 V2.2 a1.5 1.5 0 0 1 3 0 V3.5"/>
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+// Separate nameplate so it lives below all pin balloons in z-order — text from
+// one stop never covers a balloon belonging to a nearby stop.
+function PinNameplate({ stop, num, scaleInv }) {
+  return (
+    <div className="pin-nameplate-wrap"
+      style={{
+        left: `${stop.position.x}%`,
+        top: `${stop.position.y}%`,
+        transform: `translate(-50%, 8px) scale(${scaleInv})`,
+        transformOrigin: '50% 0'}}>
+      <div className="pin-nameplate">{num}. {stop.title}</div>
+    </div>
+  );
+}
+
+function PathLine({ stops, mapW, mapH }) {
+  if (!stops.length) return null;
+  const d = stops.reduce((acc, s, i) => {
+    const x = (s.position.x/100)*mapW;
+    const y = (s.position.y/100)*mapH - 60;
+    if (i === 0) return `M ${x} ${y}`;
+    const prev = stops[i-1];
+    const px = (prev.position.x/100)*mapW;
+    const py = (prev.position.y/100)*mapH - 60;
+    const mx = (px + x)/2;
+    const my = (py + y)/2 - 30;
+    return `${acc} Q ${mx} ${my} ${x} ${y}`;
+  }, '');
+  return (
+    <svg style={{position:'absolute', left:0, top:0, width:'100%', height:'100%', pointerEvents:'none', overflow:'visible'}} viewBox={`0 0 ${mapW} ${mapH}`} preserveAspectRatio="none">
+      <path d={d} className="path-line" strokeWidth="6"/>
+    </svg>
+  );
+}
+
+function TamazSprite({ x, y, idleHint, scaleInv }) {
+  return (
+    <div className="tamaz-sprite" style={{
+      left:`${x}%`, top:`${y}%`,
+      transform:`translate(-130%,-110%) scale(${scaleInv})`,
+      transformOrigin:'50% 100%'}}>
+      {idleHint && <div className="speech">Готов открыть следующий факультет?</div>}
+      <svg width="64" height="100" viewBox="0 0 64 100">
+        <line x1="48" y1="60" x2="62" y2="22" stroke="#3a342a" strokeWidth="2.4" strokeLinecap="round"/>
+        <circle cx="62" cy="22" r="3.5" fill="#d4ac5a">
+          <animate attributeName="r" values="3.5;5.5;3.5" dur="3s" repeatCount="indefinite"/>
+        </circle>
+        <path d="M16 50 Q12 80 8 96 L56 96 Q52 80 48 50 Z" fill="#2e2440" stroke="#1a1230" strokeWidth="1.2"/>
+        <path d="M14 70 Q32 74 50 70" stroke="#b8923f" strokeWidth="1.5" fill="none"/>
+        <circle cx="32" cy="42" r="10" fill="#e3c39a" stroke="#3a342a" strokeWidth="1"/>
+        <path d="M22 46 Q32 60 42 46 Q42 56 32 60 Q22 56 22 46 Z" fill="#e3d8bc" stroke="#8a7a5a" strokeWidth="0.8"/>
+        <path d="M14 38 L32 8 L50 38 Z" fill="#2e2440" stroke="#1a1230" strokeWidth="1.2"/>
+        <path d="M12 38 L52 38 L48 42 L16 42 Z" fill="#1a1230"/>
+        <path d="M44 56 Q50 58 50 64" stroke="#e3c39a" strokeWidth="3" fill="none" strokeLinecap="round"/>
+      </svg>
+    </div>
+  );
+}
+
+function Clouds({ density }) {
+  const overlayRef = React.useRef(null);
+
+  // Track cursor on desktop only — set CSS vars to drive the mask hole
+  React.useEffect(() => {
+    const el = overlayRef.current;
+    if (!el) return;
+    // Skip on touch/no-hover devices — there's no cursor to follow
+    if (window.matchMedia('(hover: none), (pointer: coarse)').matches) return;
+    const onMove = (e) => {
+      el.style.setProperty('--cursor-x', e.clientX + 'px');
+      el.style.setProperty('--cursor-y', e.clientY + 'px');
+    };
+    const onLeave = () => {
+      // Park the mask hole far off-screen so the fog covers everything
+      el.style.setProperty('--cursor-x', '-9999px');
+      el.style.setProperty('--cursor-y', '-9999px');
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseleave', onLeave);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseleave', onLeave);
+    };
+  }, []);
+
+  // Generate dense, full-height cloud field
+  const N = Math.max(density, 16); // ensure full coverage even if user lowers density
+  const clouds = [];
+  for (let i = 0; i < N; i++) {
+    // Spread vertically across the full viewport (not just the sky)
+    const top = -10 + ((i * 137) % 110); // pseudo-random distribution 0–100%
+    const left = -20 + ((i * 67) % 60);  // initial horizontal offset
+    const dur = 35 + (i * 7) % 25;        // 35–60s — visibly drifting
+    const op = 0.45 + (i * 0.083) % 0.4;  // 0.45–0.85
+    const scale = 1.6 + (i * 0.41) % 1.4; // 1.6–3.0
+    const anim = ['drift1', 'drift2', 'drift3'][i % 3];
+    clouds.push(
+      <svg key={i} className="cloud" style={{
+        top: `${top}%`,
+        left: `${left}%`,
+        opacity: op,
+        '--cloud-s': scale,
+        animation: `${anim} ${dur}s linear infinite`,
+        animationDelay: `-${(i * 13) % dur}s`,
+      }} width="420" height="140" viewBox="0 0 420 140">
+        <g fill="#ffffff">
+          <ellipse cx="80" cy="80" rx="80" ry="32"/>
+          <ellipse cx="180" cy="66" rx="86" ry="38"/>
+          <ellipse cx="280" cy="78" rx="78" ry="34"/>
+          <ellipse cx="360" cy="86" rx="50" ry="26"/>
+        </g>
+      </svg>
+    );
+  }
+  return (
+    <div ref={overlayRef} className="clouds-overlay" style={{
+      position: 'fixed',
+      inset: 0,
+      pointerEvents: 'none',
+      zIndex: 30,
+      overflow: 'hidden',
+    }}>
+      {clouds}
+    </div>
+  );
+}
+
+window.Pin = Pin;
+window.PinNameplate = PinNameplate;
+window.PathLine = PathLine;
+window.TamazSprite = TamazSprite;
+window.Clouds = Clouds;
+
+})();
+
+(function(){
+// ===== src/popups.jsx =====
+// Popups: shared shell + 6 hero popup variants
+const { useState, useEffect } = React;
+
+function Corner() {
+  return (
+    <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1">
+      <path d="M2 14 L2 2 L14 2"/>
+      <path d="M2 8 L8 2"/>
+      <circle cx="6" cy="6" r="2.4"/>
+      <path d="M6 3.6 L6 8.4 M3.6 6 L8.4 6"/>
+    </svg>
+  );
+}
+
+function PopupShell({ children, onClose, eyebrow, title, spell, wide }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  return (
+    <div className="pop-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className={`pop-shell${wide ? ' wide':''}`}>
+        <span className="pop-corner tl"><Corner/></span>
+        <span className="pop-corner tr"><Corner/></span>
+        <span className="pop-corner bl"><Corner/></span>
+        <span className="pop-corner br"><Corner/></span>
+        <button className="pop-close" onClick={onClose} aria-label="Закрыть">✕</button>
+        {eyebrow && <div className="pop-eyebrow">{eyebrow}</div>}
+        {title && <h2 className="pop-title">{title}</h2>}
+        {spell && <div className="pop-spell">«{spell}»</div>}
+        <div className="gold-rule" style={{margin:'4px 0 18px'}}/>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ---------- BOOK (Stop 17) ----------
+function BookPopup({ stop, onClose }) {
+  const PAGES = [
+    { h:'Карманное руководство', body:(
+      <>
+        <p style={{fontStyle:'italic'}}>Ведение пациентов с артериальной гипертензией. Сводка по клиническим рекомендациям РФ и ЕС.</p>
+        <p>Сия книга составлена Орденом Ритма и Давления Триархии — для тех, кто несёт службу у постели пациента и не ищет лёгких путей.</p>
+        <p style={{textAlign:'center',marginTop:24,fontFamily: "Inter, system-ui, -apple-system, sans-serif",fontSize:11,color:'var(--gold-deep)'}}>— Откройте страницу справа —</p>
+      </>
+    )},
+    { h:'Стратификация риска', body:(
+      <ul>
+        <li>Низкий: АД 130–139/85–89, без ПОМ, без АКС</li>
+        <li>Умеренный: АГ 1 ст. + 1–2 ФР</li>
+        <li>Высокий: АГ 1–2 ст. + ≥3 ФР, ПОМ или СД</li>
+        <li>Очень высокий: АГ 3 ст., АКС или ХБП ≥3</li>
+      </ul>
+    )},
+    { h:'Целевые уровни АД', body:(
+      <ul>
+        <li>Общая популяция: &lt;130/80 при переносимости</li>
+        <li>Старше 65 лет: 130–139/&lt;80</li>
+        <li>СД, ИБС: систолическое 120–129</li>
+        <li>ХБП: индивидуально, не ниже 120/70</li>
+      </ul>
+    )},
+    { h:'Стартовая терапия', body:(
+      <ul>
+        <li>Шаг 1 — двойная фиксированная: иАПФ/АРА + БКК или диуретик</li>
+        <li>Шаг 2 — тройная: иАПФ/АРА + БКК + диуретик</li>
+        <li>Шаг 3 — добавить спиронолактон 25–50 мг</li>
+        <li>Резистентная — направить в специализированный центр</li>
+      </ul>
+    )},
+    { h:'Особые сценарии', body:(
+      <ul>
+        <li>АГ + ИБС → ББ + БКК или иАПФ</li>
+        <li>АГ + ХСН → иАПФ/АРА + ББ + АМКР</li>
+        <li>АГ + СД → иАПФ/АРА + БКК</li>
+        <li>АГ + беременность → метилдопа, нифедипин, лабеталол</li>
+      </ul>
+    )},
+    { h:'Контрольный список', body:(
+      <ul>
+        <li>Измерить АД на двух руках</li>
+        <li>СМАД при подозрении на «белый халат»</li>
+        <li>Креатинин, K, липиды, глюкоза, ЭКГ</li>
+        <li>УЗИ почек у молодых с резистентностью</li>
+      </ul>
+    )},
+  ];
+  const [page, setPage] = useState(0);
+  // On mobile: 1 page per view. On desktop: 2 pages per spread.
+  const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches;
+  const pagesPerView = isMobile ? 1 : 2;
+  const totalViews = Math.ceil(PAGES.length / pagesPerView);
+  const firstIdx = page * pagesPerView;
+  return (
+    <PopupShell onClose={onClose} eyebrow="Стоп 17 · Вековая библиотека" title={stop.title} spell={stop.spell} wide>
+      <div className="book-stage">
+        <div className="book">
+          {!isMobile && (
+            <div className="book-page left-static">
+              <h3 className="page-h">{PAGES[firstIdx]?.h || ''}</h3>
+              <div className="page-content">{PAGES[firstIdx]?.body}</div>
+              <div className="page-num">{firstIdx + 1}</div>
+            </div>
+          )}
+          <div className={`book-page${!isMobile && page >= 1 ? ' book-flipped' : ''}${isMobile ? ' single' : ''}`} style={{zIndex: 10 - page}}>
+            <h3 className="page-h">{PAGES[isMobile ? firstIdx : firstIdx + 1]?.h || ''}</h3>
+            <div className="page-content">{PAGES[isMobile ? firstIdx : firstIdx + 1]?.body}</div>
+            <div className="page-num">{(isMobile ? firstIdx : firstIdx + 1) + 1}</div>
+          </div>
+        </div>
+        {!isMobile && <div className="book-spine"/>}
+      </div>
+      <div className="book-controls">
+        <button className="book-arrow" disabled={page===0} onClick={() => setPage(p => Math.max(0, p-1))}>← Назад</button>
+        <span style={{fontFamily: "Inter, system-ui, -apple-system, sans-serif", fontSize:11, color:'var(--gold-deep)'}}>
+          {isMobile ? `СТРАНИЦА ${firstIdx + 1} ИЗ ${PAGES.length}` : `СТРАНИЦЫ ${firstIdx+1}–${Math.min(firstIdx+2, PAGES.length)} ИЗ ${PAGES.length}`}
+        </span>
+        <button className="book-arrow" disabled={page >= totalViews - 1} onClick={() => setPage(p => Math.min(totalViews - 1, p+1))}>Вперёд →</button>
+      </div>
+      <p style={{textAlign:'center',fontStyle:'italic',color:'var(--gold-deep)',fontSize:13,marginTop:12}}>Не подлежит выгрузке. Запоминайте.</p>
+    </PopupShell>
+  );
+}
+
+// ---------- VIDEO ----------
+function VideoPopup({ stop, onClose }) {
+  const vertical = stop.type === 'video-vertical';
+  return (
+    <PopupShell onClose={onClose} eyebrow={`Стоп ${stop.id} · ${stop.faculty}`} title={stop.title} wide={!vertical}>
+      <div className="video-frame" style={vertical ? {aspectRatio:'9/16', maxWidth:340, margin:'10px auto'}: {}}>
+        <div className="play-btn">▶</div>
+      </div>
+      <p style={{textAlign:'center',color:'var(--gold-deep)',fontFamily: "Inter, system-ui, -apple-system, sans-serif",fontSize:11,textTransform:'uppercase',marginTop:8}}>
+        {stop.subtitle}
+      </p>
+      <p className="pop-body" style={{marginTop:14}}>
+        Здесь будет {vertical ? 'вертикальное motion-design' : 'горизонтальное'} видео. Лектор: {stop.professor === 'tamaz' ? 'Тамаз — Молодой волшебник Систолион' : stop.professor === 'demkina' ? 'Профессор Артерия Триос (Демкина)' : stop.professor === 'chernova' ? 'Хранительница Диастолия (Чернова)' : 'гости школы'}.
+      </p>
+    </PopupShell>
+  );
+}
+
+// ---------- CARDS ----------
+function CardsPopup({ stop, onClose }) {
+  const downloadable = stop.type === 'cards-download';
+  const cards = [
+    { h:'Принцип I',  p:'Лекарственные средства, повышающие АД, чаще остаются вне поля зрения врача. Обзор должен быть рутинным.'},
+    { h:'Принцип II', p:'НПВС, ГКС, симпатомиметики и пероральные контрацептивы — типичные подозреваемые.'},
+    { h:'Принцип III',p:'Травы и БАДы (солодка, эфедра) тоже способны давать стойкий рост АД.'},
+    { h:'Принцип IV', p:'Алгоритм: отмена → пересмотр режима → подбор альтернативы → контроль через 4 недели.'},
+    { h:'Принцип V',  p:'Документируйте каждое решение — это часть терапевтического диалога с пациентом.'},
+  ];
+  return (
+    <PopupShell onClose={onClose} eyebrow={`Стоп ${stop.id} · ${stop.faculty}`} title={stop.title} spell={stop.spell} wide>
+      <div className="hint-pill">Листай · Тык</div>
+      <div className="cards-rail">
+        {cards.map((c,i) => (
+          <div className="cheat-card" key={i}>
+            <div className="num">{String(i+1).padStart(2,'0')} / {String(cards.length).padStart(2,'0')}</div>
+            <div style={{marginTop:18}}>
+              <div className="hint-pill" style={{marginBottom:10}}>Шпаргалка</div>
+              <h4>{c.h}</h4>
+              <p>{c.p}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:8}}>
+        <span style={{fontFamily: "Inter, system-ui, -apple-system, sans-serif",fontStyle:'italic',color:'var(--gold-deep)',fontSize:14}}>{downloadable ? 'Можно унести с собой.' : 'Только для прочтения.'}</span>
+        {downloadable
+          ? <button className="btn-gold">Скачать PDF ↓</button>
+          : <button className="btn-ghost" disabled>Не подлежит выгрузке</button>}
+      </div>
+    </PopupShell>
+  );
+}
+
+// ---------- QUIZ (Stop 21) ----------
+function QuizPopup({ stop, onClose, onComplete }) {
+  const [i, setI] = useState(0);
+  const [score, setScore] = useState(0);
+  const [pickState, setPickState] = useState(null);
+  const Q = QUIZ_QUESTIONS;
+  if (i >= Q.length) {
+    return (
+      <PopupShell onClose={onClose} eyebrow="Пик Достижений" title="Кардиоринг — итог">
+        <p className="pop-body">Вы ответили правильно на <strong>{score}</strong> из {Q.length} вопросов.</p>
+        <div style={{textAlign:'center',marginTop:18}}>
+          <button className="btn-gold" onClick={() => { onComplete && onComplete(); onClose(); }}>К диплому →</button>
+        </div>
+      </PopupShell>
+    );
+  }
+  const pick = (val) => {
+    const right = val === Q[i].truth;
+    setPickState(right ? 'right' : 'wrong');
+    if (right) setScore(s => s+1);
+    setTimeout(() => { setPickState(null); setI(i+1); }, 700);
+  };
+  return (
+    <PopupShell onClose={onClose} eyebrow="Стоп 21 · Пик Достижений" title="Кардиоринг" spell="Правда или вымысел">
+      <div className="quiz-progress">
+        {Q.map((_,k) => <span key={k} className={k <= i ? 'done':''}/>)}
+      </div>
+      <div className="quiz-q">{Q[i].q}</div>
+      <div className="quiz-actions">
+        <button className="quiz-btn t" onClick={() => pick(true)} disabled={pickState!==null}>Правда</button>
+        <button className="quiz-btn f" onClick={() => pick(false)} disabled={pickState!==null}>Вымысел</button>
+      </div>
+      {pickState && (
+        <p style={{textAlign:'center',marginTop:14,fontFamily: "Inter, system-ui, -apple-system, sans-serif",color:pickState==='right'?'#3a6a3a':'#a04040'}}>
+          {pickState === 'right' ? '✓ Верно' : '✗ Не совсем'}
+        </p>
+      )}
+    </PopupShell>
+  );
+}
+
+// ---------- POTION (Stop 20) ----------
+function PotionPopup({ stop, onClose }) {
+  const ingredients = [
+    { id:'A', name:'Корень Сартанус',   dose:[40,80,160] },
+    { id:'B', name:'Лист Амлодикс',     dose:[2.5,5,10] },
+    { id:'C', name:'Соль Индапамида',   dose:[1.25,2.5] },
+    { id:'D', name:'Эфир Бисопролии',   dose:[2.5,5,10] },
+  ];
+  const VALID = [
+    ['A','B','C', [80,5,2.5]],
+    ['A','B','C', [160,5,1.25]],
+    ['A','B','C', [40,2.5,1.25]],
+  ];
+  const [picks, setPicks] = useState({});
+  const [msg, setMsg] = useState(null);
+  const toggle = (id, dose) => setPicks(p => ({ ...p, [id]: p[id]?.dose === dose ? undefined : { dose } }));
+  const brew = () => {
+    const chosen = Object.entries(picks).filter(([,v]) => v).map(([k,v]) => [k, v.dose]);
+    if (chosen.length !== 3) { setMsg({ kind:'err', text:'Истинная Триплексия требует ровно трёх компонентов.' }); return; }
+    const ids = chosen.map(c => c[0]).sort();
+    const doses = chosen.map(c => c[1]);
+    const valid = VALID.find(v => v.slice(0,3).join('') === ids.join(''));
+    if (!valid) { setMsg({ kind:'err', text:'Сочетание не одобрено: тройная фиксированная не существует в данной комбинации. Маркетинг: «Триликсам» выпускается строго в трёх дозировках.' }); return; }
+    const ok = ids.every((id,k) => valid[3][valid.indexOf(id)] === undefined ? true : true) && JSON.stringify(doses) === JSON.stringify(valid[3]);
+    if (ok) setMsg({ kind:'ok', text:'Зелье свернулось в таблетку Триликсам ✓' });
+    else setMsg({ kind:'split', text:'Дозировка превышает безопасный предел. Делить нельзя — собрать заново.' });
+  };
+  return (
+    <PopupShell onClose={onClose} eyebrow="Стоп 20 · Лес Заклинаний" title={stop.title} spell={stop.spell} wide>
+      <div className="potion-game">
+        <div>
+          <div className="anamnesis">
+            <h5>Анамнез пациента</h5>
+            <p>Женщина, 62 года. АГ 2 ст., 8 лет. Дислипидемия. Курение в прошлом. На монотерапии иАПФ — АД 152/94. Жалоб со стороны почек нет. K — 4.1.</p>
+            <p style={{marginTop:8,fontStyle:'italic',color:'var(--gold-deep)'}}>«А ты попробуй» — собери минимальную эффективную тройную комбинацию.</p>
+          </div>
+          {msg && (
+            <div style={{marginTop:12,padding:'10px 14px',border:`1px solid ${msg.kind==='ok'?'#3a6a3a':'#a04040'}`,background:'rgba(255,255,255,0.5)',fontFamily: "Inter, system-ui, -apple-system, sans-serif",fontSize:13,color:'var(--ink)'}}>{msg.text}</div>
+          )}
+        </div>
+        <div className="cauldron">
+          <svg className="cauldron-svg" viewBox="0 0 160 140">
+            <ellipse cx="80" cy="120" rx="55" ry="8" fill="rgba(0,0,0,0.3)"/>
+            <path d="M30 60 Q40 110 80 110 Q120 110 130 60 Z" fill="#2a2418" stroke="#1a1410" strokeWidth="1.5"/>
+            <ellipse cx="80" cy="60" rx="50" ry="10" fill="#3a342a" stroke="#1a1410"/>
+            <ellipse cx="80" cy="58" rx="42" ry="6" fill={msg?.kind==='ok'?'#d4ac5a':'#6a8a6a'}>
+              <animate attributeName="ry" values="6;8;6" dur="3s" repeatCount="indefinite"/>
+            </ellipse>
+            <path d="M70 50 Q72 40 76 44 M86 50 Q88 38 92 44" fill="none" stroke="#e8ecf0" strokeWidth="1" opacity="0.7">
+              <animate attributeName="opacity" values="0.3;0.8;0.3" dur="2s" repeatCount="indefinite"/>
+            </path>
+          </svg>
+          <div style={{fontFamily: "Inter, system-ui, -apple-system, sans-serif",fontSize:11,color:'var(--gold-deep)'}}>КОТЁЛ</div>
+        </div>
+      </div>
+      <div className="gold-rule" style={{margin:'18px 0 12px'}}/>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+        {ingredients.map(ing => (
+          <div key={ing.id} style={{border:'1px solid var(--gold-deep)',padding:'10px 12px',background:'rgba(255,255,255,0.4)'}}>
+            <div style={{fontFamily: "Inter, system-ui, -apple-system, sans-serif",fontSize:12,color:'var(--ink)',marginBottom:6}}>{ing.name}</div>
+            <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+              {ing.dose.map(d => (
+                <button key={d} className={`ing ${picks[ing.id]?.dose===d?'selected':''}`} style={{padding:'4px 10px'}} onClick={() => toggle(ing.id, d)}>{d} mg</button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{display:'flex',justifyContent:'space-between',marginTop:14}}>
+        <button className="btn-ghost" onClick={() => { setPicks({}); setMsg(null); }}>Собрать заново</button>
+        <button className="btn-gold" onClick={brew}>Заварить «Триплексио»</button>
+      </div>
+    </PopupShell>
+  );
+}
+
+// ---------- AVATAR GEN (Stop 1) ----------
+function AvatarPopup({ stop, onClose, onSave }) {
+  const TAGS = ['кардиолог','терапевт','исследователь','наставник','новатор','скептик','эмпат','ритмолог'];
+  const [picked, setPicked] = useState([]);
+  const [text, setText] = useState('');
+  const [generated, setGenerated] = useState(false);
+  const toggle = (t) => setPicked(p => p.includes(t) ? p.filter(x => x!==t) : [...p, t]);
+  return (
+    <PopupShell onClose={onClose} eyebrow="Стоп 1 · Река Аватария" title={stop.title}>
+      <p className="pop-body">Зачерпните воду из реки Аватарии — и она покажет, кем вы предстанете на дипломе.</p>
+      <div style={{margin:'14px 0',display:'flex',flexWrap:'wrap',gap:6}}>
+        {TAGS.map(t => (
+          <button key={t} onClick={() => toggle(t)} style={{
+            padding:'6px 12px',border:`1px solid ${picked.includes(t)?'var(--gold)':'var(--gold-deep)'}`,
+            background:picked.includes(t)?'var(--gold)':'transparent',
+            color:picked.includes(t)?'#1a1410':'var(--ink)',fontFamily: "Inter, system-ui, -apple-system, sans-serif",fontSize:13,cursor:'pointer'}}>
+            {t}
+          </button>
+        ))}
+      </div>
+      <textarea value={text} onChange={e => setText(e.target.value)} placeholder="Опишите свой образ свободно — несколько слов..."
+        style={{width:'100%',minHeight:64,padding:10,border:'1px solid var(--gold-deep)',background:'rgba(255,255,255,0.5)',fontFamily: "Inter, system-ui, -apple-system, sans-serif",fontSize:14,color:'var(--ink)',resize:'vertical'}}/>
+      {generated && (
+        <div style={{margin:'14px auto 0',width:160,height:160,border:'2px solid var(--gold)',borderRadius:'50%',background:'radial-gradient(circle,#3a2e1c,#1a1410)',display:'grid',placeItems:'center'}}>
+          <svg width="100" height="100" viewBox="0 0 100 100">
+            <circle cx="50" cy="38" r="18" fill="#e3c39a"/>
+            <path d="M22 90 Q22 60 50 60 Q78 60 78 90 Z" fill="#2e2440"/>
+            <circle cx="44" cy="36" r="2" fill="#1a1410"/><circle cx="56" cy="36" r="2" fill="#1a1410"/>
+          </svg>
+        </div>
+      )}
+      <div style={{display:'flex',justifyContent:'space-between',marginTop:14}}>
+        <button className="btn-ghost" onClick={() => setGenerated(false)}>Сбросить</button>
+        {!generated
+          ? <button className="btn-gold" onClick={() => setGenerated(true)}>Призвать аватар</button>
+          : <button className="btn-gold" onClick={() => { onSave && onSave(); onClose(); }}>Сохранить для диплома</button>}
+      </div>
+    </PopupShell>
+  );
+}
+
+// ---------- DIPLOMA (Stop 22) ----------
+function DiplomaPopup({ stop, onClose, points }) {
+  const lvl = diplomaLevel(points);
+  return (
+    <PopupShell onClose={onClose} eyebrow="Стоп 22 · Пик Достижений" title="Диплом Ученика" wide>
+      <div className="diploma">
+        <h2>Волшебная Школа Медицинских Инноваций</h2>
+        <div style={{fontFamily: "Inter, system-ui, -apple-system, sans-serif",fontStyle:'italic',color:'var(--gold-deep)',fontSize:15,marginBottom:6}}>имени Асклепия</div>
+        <div className="seal" style={{background:`radial-gradient(circle, ${lvl.color}, ${lvl.cls==='gold'?'#8a6a25':lvl.cls==='silver'?'#5e6670':'#5a3a18'})`}}>
+          {lvl.cls === 'gold' ? 'AU' : lvl.cls === 'silver' ? 'AG' : lvl.cls === 'bronze' ? 'CU' : '—'}
+        </div>
+        <p style={{fontFamily: "Inter, system-ui, -apple-system, sans-serif",fontSize:15,color:'var(--ink-soft)',maxWidth:480}}>
+          Сим удостоверяется, что Ученик с честью прошёл путь по двадцати двум вехам школы, овладев заклинаниями ритма, давления и здравого смысла.
+        </p>
+        <div className="level-badge" style={{borderColor:lvl.color,color:lvl.color}}>{lvl.name} уровень · {points}/20 баллов</div>
+        <div style={{marginTop:18,display:'flex',gap:10}}>
+          <span style={{fontFamily: "Inter, system-ui, -apple-system, sans-serif",fontStyle:'italic',color:'var(--gold-deep)'}}>Орден Ритма и Давления Триархия</span>
+        </div>
+      </div>
+      <div style={{display:'flex',justifyContent:'flex-end',gap:10,marginTop:14}}>
+        <button className="btn-ghost" onClick={() => window.print()}>Распечатать</button>
+        <button className="btn-gold" onClick={onClose}>Принять</button>
+      </div>
+    </PopupShell>
+  );
+}
+
+// ---------- Generic placeholder for shells we haven't fully designed ----------
+function GenericPopup({ stop, onClose }) {
+  return (
+    <PopupShell onClose={onClose} eyebrow={`Стоп ${stop.id} · ${stop.faculty}`} title={stop.title} spell={stop.spell}>
+      <p className="pop-body">Содержимое этой остановки будет добавлено в следующем витке. Тип: <em>{stop.type}</em>.</p>
+      <p className="pop-body" style={{fontStyle:'italic',color:'var(--gold-deep)',marginTop:10}}>{stop.subtitle}</p>
+    </PopupShell>
+  );
+}
+
+window.PopupShell = PopupShell;
+window.BookPopup = BookPopup;
+window.VideoPopup = VideoPopup;
+window.CardsPopup = CardsPopup;
+window.QuizPopup = QuizPopup;
+window.PotionPopup = PotionPopup;
+window.AvatarPopup = AvatarPopup;
+window.DiplomaPopup = DiplomaPopup;
+window.GenericPopup = GenericPopup;
+
+})();
+
+(function(){
+// ===== src/app.jsx =====
+// App v2.1 — bounded pan/zoom over static map image; pins/Tamaz/clouds positioned in % of map.
+// FIXES vs v2:
+//   1. Drag now works even when pointerdown lands on a pin/river-hit/coffee-hit
+//      (those handlers stop propagation themselves; map-stage starts drag for everyone else)
+//   2. Wheel zoom uses a native non-passive listener (React's onWheel is passive, breaks preventDefault)
+//   3. panToStop animation goes through clamp at every tick
+//   4. NaN guards in clamp + view setter
+//   5. Map image dimensions reduced — see public/map-base.jpg (3168×1344)
+
+const { useState, useEffect, useRef, useCallback, useLayoutEffect, useMemo } = React;
+
+const STORAGE_KEY = 'asclepius_progress_v2';
+const loadProgress = () => { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || { opened:[], avatarSaved:false }; } catch { return { opened:[], avatarSaved:false }; } };
+const saveProgress = (p) => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(p)); } catch {} };
+
+const TWEAK_DEFAULS = /*EDITMODE-BEGIN*/{
+  "cloudDensity": 4,
+  "showAllUnlocked": true,
+  "showPathLine": true
+}/*EDITMODE-END*/;
+
+// Replace map dimensions to match the new (downscaled) image
+// IMPORTANT: also update data.jsx -> window.MAP_W = 3168; window.MAP_H = 1344;
+
+function App() {
+  const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULS);
+  const [progress, setProgress] = useState(loadProgress());
+  const [activePopup, setActivePopup] = useState(null);
+  const [toast, setToast] = useState(null);
+  const [idleHint, setIdleHint] = useState(false);
+  const [coffeeHover, setCoffeeHover] = useState(false);
+
+  const stageRef = useRef(null);
+  const [vp, setVp] = useState({ w: window.innerWidth, h: window.innerHeight });
+  const [view, setView] = useState({ x:0, y:0, scale:1 });
+  const drag = useRef(null);
+  const pinch = useRef(null);
+  const pointers = useRef(new Map()); // pointerId → { x, y }
+  const initialFitDone = useRef(false);
+
+  const MAP_W = window.MAP_W;
+  const MAP_H = window.MAP_H;
+
+  // Defensive: detect any NaN/Infinity and reset
+  const safeView = (v) => {
+    if (!v || !Number.isFinite(v.x) || !Number.isFinite(v.y) || !Number.isFinite(v.scale) || v.scale <= 0) {
+      console.warn('[map] invalid view, resetting', v);
+      const s = Math.max(vp.h / MAP_H, vp.w / MAP_W);
+      return { scale: s, x: 0, y: 0 };
+    }
+    return v;
+  };
+
+  const minScale = useMemo(() => {
+    const fitH = vp.h / MAP_H;
+    const fitW = vp.w / MAP_W;
+    return Math.max(fitH, fitW);
+  }, [vp, MAP_W, MAP_H]);
+  const maxScale = 2.4;
+
+  // clamp uses latest vp via closure on each render
+  const clamp = useCallback((v) => {
+    v = safeView(v);
+    const sw = MAP_W * v.scale;
+    const sh = MAP_H * v.scale;
+    // map MUST cover viewport; if scale<minScale, push it back up
+    const scale = Math.max(minScale, Math.min(maxScale, v.scale));
+    const sw2 = MAP_W * scale;
+    const sh2 = MAP_H * scale;
+    let x = v.x, y = v.y;
+    // bounds: x in [vp.w - sw2, 0], y in [vp.h - sh2, 0]
+    // when sw2 == vp.w both bounds are 0, x must be 0
+    const xMin = Math.min(0, vp.w - sw2);
+    const yMin = Math.min(0, vp.h - sh2);
+    x = Math.max(xMin, Math.min(0, x));
+    y = Math.max(yMin, Math.min(0, y));
+    return { scale, x, y };
+  }, [vp, minScale, maxScale, MAP_W, MAP_H]);
+
+  useEffect(() => { saveProgress(progress); }, [progress]);
+
+  useEffect(() => {
+    const onR = () => setVp({ w:window.innerWidth, h:window.innerHeight });
+    window.addEventListener('resize', onR);
+    return () => window.removeEventListener('resize', onR);
+  }, []);
+
+  // Initial fit + center on stop 1 — only once
+  useEffect(() => {
+    if (initialFitDone.current) {
+      // on resize, just re-clamp current view at new bounds
+      setView(v => clamp(v));
+      return;
+    }
+    initialFitDone.current = true;
+    const s = Math.max(vp.h / MAP_H, vp.w / MAP_W);
+    const stop1 = STOPS[0];
+    const cx = (stop1.position.x/100)*MAP_W*s;
+    const cy = (stop1.position.y/100)*MAP_H*s;
+    setView(clamp({ scale:s, x: vp.w/2 - cx, y: vp.h/2 - cy }));
+    // eslint-disable-next-line
+  }, [minScale]);
+
+  // idle hint
+  useEffect(() => {
+    let t;
+    const reset = () => { setIdleHint(false); clearTimeout(t); t = setTimeout(() => setIdleHint(true), 15000); };
+    reset();
+    window.addEventListener('mousemove', reset);
+    return () => { clearTimeout(t); window.removeEventListener('mousemove', reset); };
+  }, []);
+
+  const points = progress.opened.filter(id => {
+    const s = STOPS.find(x => x.id === id);
+    return s && s.awardsPoints;
+  }).length;
+
+  const nextStopId = (() => {
+    for (const s of STOPS) if (!progress.opened.includes(s.id)) return s.id;
+    return null;
+  })();
+
+  const stopState = (s) => {
+    if (progress.opened.includes(s.id)) return 'opened';
+    if (s.id === nextStopId) return 'active';
+    if (tweaks.showAllUnlocked) return '';
+    if (s.id < (nextStopId || 99)) return '';
+    return 'locked';
+  };
+
+  const openStop = (stop) => {
+    const wasOpen = progress.opened.includes(stop.id);
+    setActivePopup(stop);
+    if (!wasOpen) {
+      setProgress(p => ({ ...p, opened: [...p.opened, stop.id] }));
+      const sameFaculty = STOPS.filter(s => s.faculty === stop.faculty);
+      const lastOfFaculty = sameFaculty[sameFaculty.length - 1];
+      if (lastOfFaculty.id === stop.id) {
+        const nextStop = STOPS.find(s => s.id === stop.id + 1);
+        if (nextStop) setTimeout(() => setToast({ stop: nextStop }), 400);
+      }
+    }
+  };
+
+  // FIX 3: panToStop now clamps every tick
+  const panToStop = (stop) => {
+    const s = view.scale;
+    const cx = (stop.position.x/100)*MAP_W*s;
+    const cy = (stop.position.y/100)*MAP_H*s;
+    const target = clamp({ scale:s, x: vp.w/2 - cx, y: vp.h/2 - cy });
+    const start = { ...view };
+    const t0 = performance.now();
+    const dur = 800;
+    const tick = (t) => {
+      const k = Math.min(1, (t - t0)/dur);
+      const e = 0.5 - Math.cos(k*Math.PI)/2;
+      setView(clamp({
+        scale: start.scale + (target.scale - start.scale)*e,
+        x: start.x + (target.x - start.x)*e,
+        y: start.y + (target.y - start.y)*e}));
+      if (k < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  };
+
+  // FIX 1 (v2.2): pointer capture only AFTER drag threshold crossed. Capturing on
+  // pointerdown forced click events to dispatch on the captured element (map-stage)
+  // instead of on the pin under the cursor — that's why pin clicks never opened popups.
+  // v2.3: also handle two-pointer pinch zoom for mobile.
+  const onPointerDown = (e) => {
+    if (e.button && e.button !== 0) return;
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (pointers.current.size === 1) {
+      drag.current = {
+        sx: e.clientX, sy: e.clientY,
+        vx: view.x, vy: view.y,
+        moved: false,
+        pointerId: e.pointerId};
+      pinch.current = null;
+    } else if (pointers.current.size === 2) {
+      drag.current = null;
+      const pts = Array.from(pointers.current.values());
+      const dx = pts[1].x - pts[0].x, dy = pts[1].y - pts[0].y;
+      pinch.current = {
+        startDist: Math.hypot(dx, dy),
+        startScale: view.scale,
+        startView: { ...view },
+        midX: (pts[0].x + pts[1].x) / 2,
+        midY: (pts[0].y + pts[1].y) / 2,
+      };
+    }
+  };
+  const onPointerMove = (e) => {
+    if (!pointers.current.has(e.pointerId)) return;
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    // Pinch (two pointers)
+    if (pointers.current.size === 2 && pinch.current) {
+      const pts = Array.from(pointers.current.values());
+      const dx = pts[1].x - pts[0].x, dy = pts[1].y - pts[0].y;
+      const dist = Math.hypot(dx, dy);
+      if (!dist || !pinch.current.startDist) return;
+      const ratio = dist / pinch.current.startDist;
+      const ns = Math.max(minScale, Math.min(maxScale, pinch.current.startScale * ratio));
+      if (!Number.isFinite(ns) || ns <= 0) return;
+      const k = ns / pinch.current.startScale;
+      const cx = pinch.current.midX, cy = pinch.current.midY;
+      setView(clamp({
+        scale: ns,
+        x: cx - (cx - pinch.current.startView.x) * k,
+        y: cy - (cy - pinch.current.startView.y) * k,
+      }));
+      return;
+    }
+
+    // Drag (single pointer)
+    if (drag.current && pointers.current.size === 1) {
+      const dx = e.clientX - drag.current.sx;
+      const dy = e.clientY - drag.current.sy;
+      if (!drag.current.moved && Math.abs(dx) + Math.abs(dy) > 4) {
+        drag.current.moved = true;
+        stageRef.current?.classList.add('dragging');
+        try { stageRef.current?.setPointerCapture(drag.current.pointerId); } catch {}
+      }
+      if (drag.current.moved) {
+        setView(v => clamp({ ...v, x: drag.current.vx + dx, y: drag.current.vy + dy }));
+      }
+    }
+  };
+  const onPointerUp = (e) => {
+    pointers.current.delete(e.pointerId);
+    const wasDragging = drag.current?.moved;
+    if (drag.current?.pointerId === e.pointerId) {
+      try { stageRef.current?.releasePointerCapture(drag.current.pointerId); } catch {}
+      drag.current = null;
+    }
+    // Pinch ending — re-anchor drag from remaining finger if any
+    if (pinch.current) {
+      pinch.current = null;
+      if (pointers.current.size === 1) {
+        const [pid, p] = pointers.current.entries().next().value;
+        drag.current = { sx: p.x, sy: p.y, vx: view.x, vy: view.y, moved: false, pointerId: pid };
+      }
+    }
+    if (wasDragging) {
+      const swallow = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
+      window.addEventListener('click', swallow, { capture: true, once: true });
+      setTimeout(() => window.removeEventListener('click', swallow, true), 50);
+    }
+    if (pointers.current.size === 0) {
+      stageRef.current?.classList.remove('dragging');
+    }
+  };
+
+  // FIX 2: native non-passive wheel listener (React's onWheel is passive in modern React)
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const onWheel = (e) => {
+      e.preventDefault();
+      const delta = -e.deltaY * 0.0018;
+      setView(v => {
+        const ns = Math.max(minScale, Math.min(maxScale, v.scale * (1 + delta)));
+        if (!Number.isFinite(ns) || ns <= 0) return v;
+        const k = ns / v.scale;
+        const cx = e.clientX, cy = e.clientY;
+        return clamp({ scale: ns, x: cx - (cx - v.x) * k, y: cy - (cy - v.y) * k });
+      });
+    };
+    stage.addEventListener('wheel', onWheel, { passive: false });
+    return () => stage.removeEventListener('wheel', onWheel);
+  }, [minScale, maxScale, clamp]);
+
+  const zoom = (dir) => setView(v => {
+    const ns = Math.max(minScale, Math.min(maxScale, v.scale * (dir > 0 ? 1.18 : 0.85)));
+    const cx = vp.w/2, cy = vp.h/2;
+    const k = ns / v.scale;
+    return clamp({ scale: ns, x: cx - (cx - v.x) * k, y: cy - (cy - v.y) * k });
+  });
+
+  const renderPopup = () => {
+    if (!activePopup) return null;
+    const props = { stop: activePopup, onClose: () => setActivePopup(null) };
+    switch (activePopup.type) {
+      case 'book': return <BookPopup {...props} />;
+      case 'video':
+      case 'video-vertical': return <VideoPopup {...props} />;
+      case 'cards-download':
+      case 'cards-no-download': return <CardsPopup {...props} />;
+      case 'quiz': return <QuizPopup {...props} />;
+      case 'potion-game': return <PotionPopup {...props} />;
+      case 'avatar-gen': return <AvatarPopup {...props} onSave={() => setProgress(p => ({...p, avatarSaved:true}))} />;
+      case 'diploma': return <DiplomaPopup {...props} points={points} />;
+      default: return <GenericPopup {...props} />;
+    }
+  };
+
+  const nextStop = STOPS.find(s => s.id === nextStopId) || STOPS[STOPS.length - 1];
+
+  const pinScale = 1 / Math.max(0.5, view.scale * 1.2);
+
+  // Stop drag from starting on interactive children
+  const stopDrag = (e) => e.stopPropagation();
+
+  return (
+    <>
+      {/* Atmospheric clouds — fixed overlay above the map and pins, but below HUD/popups */}
+      <Clouds density={tweaks.cloudDensity}/>
+
+      <div className="hud-tl">
+        <div className="crest">
+          <svg width="28" height="28" viewBox="0 0 28 28">
+            <path d="M14 4 L20 8 V14 Q20 20 14 24 Q8 20 8 14 V8 Z" fill="none" stroke="#d4ac5a" strokeWidth="1.4"/>
+            <path d="M14 10 V18 M10 14 H18" stroke="#d4ac5a" strokeWidth="1.4"/>
+            <path d="M11 14 Q12 12 13 14 T15 14 T17 14" fill="none" stroke="#d4ac5a" strokeWidth="0.9"/>
+          </svg>
+        </div>
+        <div>
+          <div style={{fontFamily: "Inter, system-ui, -apple-system, sans-serif",fontSize:11,color:'#d4ac5a'}}>ВОЛШЕБНАЯ ШКОЛА</div>
+          <div style={{fontFamily: "Inter, system-ui, -apple-system, sans-serif",fontStyle:'italic',fontSize:13,color:'#e9dcb6',lineHeight:1.2}}>медицинских инноваций им. Асклепия</div>
+        </div>
+      </div>
+
+      <div className="hud-tr">
+        <div className="avatar-frame" title="Получите аватар на Реке Аватарии">
+          {progress.avatarSaved ? (
+            <svg width="68" height="68" viewBox="0 0 100 100"><circle cx="50" cy="38" r="18" fill="#e3c39a"/><path d="M22 90 Q22 60 50 60 Q78 60 78 90 Z" fill="#2e2440"/></svg>
+          ) : (
+            <div style={{fontFamily: "Inter, system-ui, -apple-system, sans-serif",color:'#7a6a4a',fontSize:18,fontStyle:'italic'}}>?</div>
+          )}
+        </div>
+        <div style={{fontFamily: "Inter, system-ui, -apple-system, sans-serif",fontSize:10,color:'#d4ac5a'}}>УЧЕНИК</div>
+        <div className="wisdom-pill" title="Бронзовый: 5–9 · Серебряный: 10–14 · Золотой: 15–20">
+          Баллы мудрости <span className="wisdom-num">{points}</span> / 20
+        </div>
+      </div>
+
+      <div className="map-stage" ref={stageRef}
+           onPointerDown={onPointerDown}
+           onPointerMove={onPointerMove}
+           onPointerUp={onPointerUp}
+           onPointerCancel={onPointerUp}>
+        <div className="map-world" style={{
+          transform:`translate3d(${view.x}px, ${view.y}px, 0) scale(${view.scale})`,
+          width: MAP_W, height: MAP_H}}>
+          <img src="public/map-base.jpg" alt="Карта мира школы Асклепия"
+               style={{position:'absolute', left:0, top:0, width:'100%', height:'100%', pointerEvents:'none', userSelect:'none'}}
+               draggable={false}/>
+
+          {/* Coffee shop hover hit area — onPointerDown stops propagation only when actually hovered */}
+          <div className="coffee-hit"
+               onMouseEnter={() => setCoffeeHover(true)}
+               onMouseLeave={() => setCoffeeHover(false)}
+               style={{ position:'absolute', left:'15%', top:'66%', width:'14%', height:'14%' }}>
+            {coffeeHover && (
+              <div className="meme-tooltip" style={{transform:`scale(${pinScale*1.2})`}}>
+                «Говорят, что при отсутствии кофе в рационе желание жить падает до 0»
+              </div>
+            )}
+          </div>
+
+          {/* River click area for stop 1 — opens only on real click (no drag) */}
+          <div className="river-hit"
+               onClick={(e) => { if (drag.current?.moved) return; openStop(STOPS[0]); }}
+               style={{ position:'absolute', left:'18%', top:'46%', width:'18%', height:'8%', cursor:'pointer' }}
+               title="Создать аватар">
+          </div>
+
+          {tweaks.showPathLine && <PathLine stops={STOPS} mapW={MAP_W} mapH={MAP_H}/>}
+
+          {/* Nameplates layer — rendered first so all pin balloons stay above any text. */}
+          {STOPS.map((s) => (
+            <PinNameplate key={`np-${s.id}`} stop={s} num={s.id} scaleInv={pinScale}/>
+          ))}
+
+          {/* Pin balloons — clickable, always on top of nameplates. */}
+          {STOPS.map((s) => (
+            <Pin key={s.id} stop={s} num={s.id} state={stopState(s)}
+                 onClick={() => { if (drag.current?.moved) return; openStop(s); }}
+                 scaleInv={pinScale}/>
+          ))}
+          <TamazSprite x={nextStop.position.x - 3} y={nextStop.position.y} idleHint={idleHint} scaleInv={pinScale}/>
+        </div>
+      </div>
+
+      <div className="zoom-ctrl">
+        <button className="zoom-btn" onClick={() => zoom(1)} aria-label="Приблизить">+</button>
+        <button className="zoom-btn" onClick={() => zoom(-1)} aria-label="Отдалить">−</button>
+      </div>
+      <div className="legend">Перетаскивайте · Колёсиком — масштаб · Esc — закрыть</div>
+
+      {toast && (
+        <div className="toast">
+          <div className="toast-text">Поздравляем с успешным прохождением курса! Вас ждёт следующий факультет.</div>
+          <button className="toast-btn" onClick={() => { panToStop(toast.stop); setToast(null); }}>Пройти</button>
+        </div>
+      )}
+
+      {renderPopup()}
+
+      <TweaksPanel title="Tweaks">
+        <TweakSection label="Атмосфера"/>
+        <TweakSlider label="Плотность облаков" value={tweaks.cloudDensity} min={0} max={8} step={1} onChange={(v)=>setTweak('cloudDensity', v)}/>
+        <TweakToggle label="Линия пути" value={tweaks.showPathLine} onChange={(v)=>setTweak('showPathLine', v)}/>
+        <TweakSection label="Прогресс"/>
+        <TweakToggle label="Все стопы открыты" value={tweaks.showAllUnlocked} onChange={(v)=>setTweak('showAllUnlocked', v)}/>
+        <TweakButton label="Сбросить прогресс" onClick={() => setProgress({ opened:[], avatarSaved:false })}/>
+      </TweaksPanel>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+
+})();
+</script>
 </body>
 </html>
